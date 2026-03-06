@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="sl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vremenska napoved – ECMWF</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { min-height: 100vh; background: linear-gradient(160deg, #0a0e1a 0%, #0d1525 40%, #111a2e 100%); font-family: 'Space Mono', monospace; color: #fff; padding-bottom: 40px; }
+  ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: #0a0e1a; } ::-webkit-scrollbar-thumb { background: #FFB30044; border-radius: 2px; }
+  input { outline: none; } input::placeholder { color: rgba(255,255,255,0.2); }
+  .header { background: linear-gradient(180deg, rgba(255,179,0,0.07) 0%, transparent 100%); border-bottom: 1px solid rgba(255,179,0,0.1); padding: 24px 24px 18px; text-align: center; }
+  .header h1 { font-size: 21px; font-weight: 700; letter-spacing: 1px; background: linear-gradient(90deg, #FFD700, #FF8C00); -webkit-background-clip: text; -webkit-text-fill-color: transparent; display: inline-block; }
+  .header-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 5px; }
+  .subtitle { font-size: 10px; color: rgba(255,255,255,0.3); letter-spacing: 2px; text-transform: uppercase; }
+  .container { max-width: 640px; margin: 0 auto; padding: 18px 16px 0; }
+  .search-wrap { position: relative; margin-bottom: 14px; }
+  .search-wrap input { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 11px 16px 11px 40px; color: #fff; font-size: 14px; font-family: inherit; }
+  .search-icon { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); font-size: 16px; }
+  .suggestions { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 50; background: #151d2e; border: 1px solid rgba(255,179,0,0.2); border-radius: 12px; overflow: hidden; display: none; }
+  .suggestions.show { display: block; }
+  .suggestion-item { padding: 10px 16px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.8); border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.15s; }
+  .suggestion-item:last-child { border-bottom: none; } .suggestion-item:hover { background: rgba(255,179,0,0.12); }
+  .ctrl-row { display: flex; gap: 5px; margin-bottom: 7px; flex-wrap: wrap; align-items: center; }
+  .ctrl-label { font-size: 10px; color: rgba(255,255,255,0.25); text-transform: uppercase; letter-spacing: 1px; margin-right: 2px; align-self: center; white-space: nowrap; }
+  .ctrl-btn { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 5px 12px; color: rgba(255,255,255,0.35); cursor: pointer; font-size: 11px; font-family: inherit; transition: all 0.2s; white-space: nowrap; }
+  .ctrl-btn.active-sun { background: rgba(255,179,0,0.2); border-color: rgba(255,179,0,0.5); color: #FFB300; }
+  .ctrl-btn.active-blue { background: rgba(100,200,255,0.15); border-color: rgba(100,200,255,0.4); color: #7DD8FF; }
+  .ctrl-btn:hover:not(.active-sun):not(.active-blue) { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.6); }
+  .location-label { margin-left: auto; font-size: 11px; color: rgba(255,255,255,0.3); }
+  .tab-row { display: flex; gap: 3px; margin-bottom: 14px; background: rgba(255,255,255,0.03); border-radius: 10px; padding: 3px; }
+  .tab-btn { flex: 1; padding: 8px 4px; border: none; border-radius: 8px; cursor: pointer; font-family: inherit; font-size: 11px; font-weight: 700; letter-spacing: 0.3px; transition: all 0.2s; color: rgba(255,255,255,0.3); background: transparent; }
+  .tab-btn.active { background: rgba(255,255,255,0.08); color: #fff; }
+  .loading { text-align: center; padding: 40px; color: rgba(255,179,0,0.6); font-size: 13px; }
+  .spinner { font-size: 24px; margin-bottom: 8px; display: inline-block; animation: spin 1.2s linear infinite; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .error-box { background: rgba(255,50,50,0.1); border: 1px solid rgba(255,50,50,0.2); border-radius: 12px; padding: 16px; color: #ff6b6b; font-size: 13px; }
+  .day-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; padding: 14px 18px; cursor: pointer; transition: all 0.25s ease; margin-bottom: 7px; }
+  .day-card.exp-sun { background: linear-gradient(135deg, rgba(255,179,0,0.12) 0%, rgba(255,107,53,0.06) 100%); border-color: rgba(255,179,0,0.3); }
+  .day-card.exp-rain { background: linear-gradient(135deg, rgba(80,160,255,0.1) 0%, rgba(40,100,200,0.05) 100%); border-color: rgba(80,160,255,0.3); }
+  .day-card.exp-temp { background: linear-gradient(135deg, rgba(239,68,68,0.1) 0%, rgba(251,146,60,0.05) 100%); border-color: rgba(239,68,68,0.3); }
+  .day-card.exp-all { background: linear-gradient(135deg, rgba(255,179,0,0.1) 0%, rgba(80,160,255,0.06) 100%); border-color: rgba(255,179,0,0.25); }
+  .card-top { display: flex; align-items: center; gap: 11px; }
+  .card-icon { width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 19px; }
+  .card-info { flex: 1; min-width: 0; }
+  .card-title-row { display: flex; justify-content: space-between; align-items: center; }
+  .card-title { font-weight: 700; color: #fff; font-size: 13px; }
+  .card-date { font-size: 10px; color: rgba(255,255,255,0.4); font-family: monospace; }
+  .card-meta { margin-top: 4px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .card-label { font-size: 11px; font-weight: 600; }
+  .card-stat { font-size: 11px; color: rgba(255,255,255,0.35); }
+  .progress-track { width: 100%; height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; margin-top: 7px; }
+  .progress-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+  .card-arrow { font-size: 17px; color: rgba(255,255,255,0.2); transition: transform 0.2s; flex-shrink: 0; }
+  .card-arrow.open { transform: rotate(90deg); }
+  .card-details { margin-top: 14px; border-top: 1px solid rgba(255,255,255,0.07); padding-top: 14px; }
+  .stats-grid { display: grid; gap: 7px; margin-bottom: 12px; }
+  .stats-grid.cols4 { grid-template-columns: repeat(4,1fr); }
+  .stats-grid.cols3 { grid-template-columns: repeat(3,1fr); }
+  .stats-grid.cols5 { grid-template-columns: repeat(5,1fr); }
+  .stat-box { background: rgba(255,255,255,0.04); border-radius: 9px; padding: 8px 6px; text-align: center; }
+  .stat-val { font-size: 15px; font-weight: 700; font-family: monospace; }
+  .stat-sub { font-size: 8px; color: rgba(255,255,255,0.4); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .chart-label { font-size: 10px; color: rgba(255,255,255,0.3); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
+  .chart-wrap { margin-bottom: 10px; position: relative; }
+  .chart-canvas { width: 100%; height: auto; display: block; cursor: crosshair; border-radius: 6px; }
+  .sunrise-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 10px; color: rgba(255,255,255,0.3); }
+  .footer-note { margin-top: 18px; padding: 11px 14px; background: rgba(255,255,255,0.02); border-radius: 10px; font-size: 10px; color: rgba(255,255,255,0.2); line-height: 1.7; }
+  .footer-note span { color: rgba(255,179,0,0.5); }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-row">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="5" fill="#FFD700" style="filter:drop-shadow(0 0 6px #FFD700)"/>
+      <line x1="12" y1="2" x2="12" y2="4.5" stroke="#FFD700" stroke-width="2" stroke-linecap="round"/>
+      <line x1="12" y1="19.5" x2="12" y2="22" stroke="#FFD700" stroke-width="2" stroke-linecap="round"/>
+      <line x1="2" y1="12" x2="4.5" y2="12" stroke="#FFD700" stroke-width="2" stroke-linecap="round"/>
+      <line x1="19.5" y1="12" x2="22" y2="12" stroke="#FFD700" stroke-width="2" stroke-linecap="round"/>
+      <line x1="4.93" y1="4.93" x2="6.7" y2="6.7" stroke="#FFD700" stroke-width="2" stroke-linecap="round"/>
+      <line x1="17.3" y1="17.3" x2="19.07" y2="19.07" stroke="#FFD700" stroke-width="2" stroke-linecap="round"/>
+      <line x1="19.07" y1="4.93" x2="17.3" y2="6.7" stroke="#FFD700" stroke-width="2" stroke-linecap="round"/>
+      <line x1="6.7" y1="17.3" x2="4.93" y2="19.07" stroke="#FFD700" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+    <h1>Vremenska napoved</h1>
+  </div>
+  <p class="subtitle" id="modelSubtitle">ECMWF IFS 9km · Open-Meteo API</p>
+</div>
+
+<div class="container">
+  <div class="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input type="text" id="searchInput" placeholder="Išči kraj..." value="Ljubljana" autocomplete="off">
+    <div class="suggestions" id="suggestions"></div>
+  </div>
+  <div class="ctrl-row" id="daysRow">
+    <span class="ctrl-label">Dni:</span>
+    <button class="ctrl-btn" data-d="3">3</button>
+    <button class="ctrl-btn active-sun" data-d="7">7</button>
+    <button class="ctrl-btn" data-d="10">10</button>
+    <span class="location-label" id="locationLabel">📍 Ljubljana, Slovenija</span>
+  </div>
+  <div class="ctrl-row" id="modelRow">
+    <span class="ctrl-label">Model:</span>
+    <button class="ctrl-btn" data-m="">Best Match</button>
+    <button class="ctrl-btn active-blue" data-m="ecmwf_ifs">ECMWF IFS 9km</button>
+    <button class="ctrl-btn" data-m="ecmwf_ifs025">ECMWF 0.25°</button>
+    <button class="ctrl-btn" data-m="gfs_seamless">GFS</button>
+    <button class="ctrl-btn" data-m="icon_seamless">ICON</button>
+  </div>
+  <div class="tab-row">
+    <button class="tab-btn active" data-tab="sun">☀️ Sevanje</button>
+    <button class="tab-btn" data-tab="rain">🌧 Padavine</button>
+    <button class="tab-btn" data-tab="temp">🌡️ Temperatura</button>
+    <button class="tab-btn" data-tab="all">📊 Vse</button>
+  </div>
+  <div id="content"></div>
+</div>
+
+<script>
+const GEOCODING='https://geocoding-api.open-meteo.com/v1/search';
+const FORECAST='https://api.open-meteo.com/v1/forecast';
+const MODEL_LABELS={'':'Best Match','ecmwf_ifs':'ECMWF IFS 9km','ecmwf_ifs025':'ECMWF IFS 0.25°','gfs_seamless':'GFS (NOAA)','icon_seamless':'ICON (DWD)'};
+const DPR = window.devicePixelRatio || 1;
+
+let loc={latitude:46.05,longitude:14.51,name:'Ljubljana',country:'Slovenija'};
+let nDays=7, model='ecmwf_ifs', tab='sun', expanded=0, cards=[], debTimer=null;
+const allCanvases = []; // track for cleanup
+
+const inp=document.getElementById('searchInput');
+const sug=document.getElementById('suggestions');
+const cnt=document.getElementById('content');
+const locLbl=document.getElementById('locationLabel');
+const subLbl=document.getElementById('modelSubtitle');
+
+// --- Search ---
+inp.addEventListener('input',()=>{
+  clearTimeout(debTimer); const q=inp.value.trim();
+  if(q.length<2){hideSug();return;}
+  debTimer=setTimeout(()=>doSearch(q),350);
+});
+inp.addEventListener('keydown',e=>{if(e.key==='Escape')hideSug();});
+document.addEventListener('click',e=>{if(!e.target.closest('.search-wrap'))hideSug();});
+async function doSearch(q){
+  try{const r=await fetch(GEOCODING+'?name='+encodeURIComponent(q)+'&count=6&language=sl');
+  const d=await r.json(); showSug(d.results||[]);}catch{hideSug();}
+}
+function showSug(res){
+  if(!res.length){hideSug();return;}
+  sug.innerHTML=res.map((s,i)=>'<div class="suggestion-item" data-i="'+i+'">'+s.name+(s.admin1?', '+s.admin1:'')+(s.country?' · '+s.country:'')+'</div>').join('');
+  sug._r=res; sug.classList.add('show');
+  sug.querySelectorAll('.suggestion-item').forEach(el=>el.addEventListener('click',()=>{
+    const s=sug._r[+el.dataset.i];
+    setLoc({latitude:s.latitude,longitude:s.longitude,name:s.name,country:s.country});
+  }));
+}
+function hideSug(){sug.classList.remove('show');sug.innerHTML='';}
+function setLoc(l){loc=l;inp.value=l.name;hideSug();locLbl.textContent='📍 '+l.name+(l.country?', '+l.country:'');load();}
+
+// Controls
+document.getElementById('daysRow').addEventListener('click',e=>{
+  const b=e.target.closest('[data-d]');if(!b)return;
+  nDays=+b.dataset.d; document.querySelectorAll('[data-d]').forEach(x=>x.classList.remove('active-sun'));
+  b.classList.add('active-sun'); load();
+});
+document.getElementById('modelRow').addEventListener('click',e=>{
+  const b=e.target.closest('[data-m]');if(!b)return;
+  model=b.dataset.m; document.querySelectorAll('[data-m]').forEach(x=>x.classList.remove('active-blue'));
+  b.classList.add('active-blue');
+  subLbl.textContent=(MODEL_LABELS[model]||'Best Match')+' · Open-Meteo API';
+  load();
+});
+document.querySelector('.tab-row').addEventListener('click',e=>{
+  const b=e.target.closest('[data-tab]');if(!b)return;
+  tab=b.dataset.tab; expanded=0;
+  document.querySelectorAll('[data-tab]').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  if(cards.length)draw();
+});
+
+// Load
+async function load(){
+  expanded=0;
+  cnt.innerHTML='<div class="loading"><div class="spinner">☀️</div><br>Nalagam podatke ('+(MODEL_LABELS[model]||'Best Match')+')...</div>';
+  try{
+    let url=FORECAST+'?latitude='+loc.latitude+'&longitude='+loc.longitude
+      +'&hourly=shortwave_radiation,cloud_cover,precipitation,precipitation_probability,temperature_2m,apparent_temperature'
+      +'&daily=sunshine_duration,sunrise,sunset,precipitation_sum,rain_sum,snowfall_sum,precipitation_probability_max,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min'
+      +'&forecast_days='+nDays+'&timezone=auto';
+    if(model)url+='&models='+model;
+    const res=await fetch(url); const data=await res.json();
+    if(data.error)throw new Error(data.reason);
+    process(data);
+  }catch(e){cnt.innerHTML='<div class="error-box">⚠️ Napaka: '+e.message+'</div>';}
+}
+
+function process(data){
+  const H=data.hourly, D=data.daily;
+  const byDay={}, order=[];
+  H.time.forEach((t,i)=>{
+    const d=t.split('T')[0];
+    if(!byDay[d]){byDay[d]={times:[],rad:[],cloud:[],precip:[],pprob:[],temp:[],feel:[]};order.push(d);}
+    byDay[d].times.push(t); byDay[d].rad.push(H.shortwave_radiation[i]||0);
+    byDay[d].cloud.push(H.cloud_cover[i]||0); byDay[d].precip.push(H.precipitation[i]||0);
+    byDay[d].pprob.push(H.precipitation_probability?(H.precipitation_probability[i]||0):0);
+    byDay[d].temp.push(H.temperature_2m[i]!=null?H.temperature_2m[i]:null);
+    byDay[d].feel.push(H.apparent_temperature[i]!=null?H.apparent_temperature[i]:null);
+  });
+  cards=order.map((date,idx)=>{
+    const dd=byDay[date];
+    return{
+      date:new Date(date).toLocaleDateString('sl-SI',{weekday:'short',day:'numeric',month:'short'}),
+      label:(()=>{const s=new Date(date).toLocaleDateString('sl-SI',{weekday:'long'});return s.charAt(0).toUpperCase()+s.slice(1);})(),
+      radMax:Math.round(Math.max.apply(null,dd.rad)), radSum:Math.round(dd.rad.reduce((a,b)=>a+b,0)),
+      cloudAvg:Math.round(dd.cloud.reduce((a,b)=>a+b,0)/dd.cloud.length),
+      sunH:((D.sunshine_duration[idx]||0)/3600).toFixed(1),
+      precipTot:(D.precipitation_sum[idx]||0).toFixed(1), rainTot:(D.rain_sum[idx]||0).toFixed(1),
+      snowTot:(D.snowfall_sum[idx]||0).toFixed(1), precipProbMax:D.precipitation_probability_max[idx]||0,
+      tMax:D.temperature_2m_max[idx]!=null?Math.round(D.temperature_2m_max[idx]):null,
+      tMin:D.temperature_2m_min[idx]!=null?Math.round(D.temperature_2m_min[idx]):null,
+      feelMax:D.apparent_temperature_max[idx]!=null?Math.round(D.apparent_temperature_max[idx]):null,
+      feelMin:D.apparent_temperature_min[idx]!=null?Math.round(D.apparent_temperature_min[idx]):null,
+      hourlyTime:dd.times, hourlyRad:dd.rad, hourlyPrecip:dd.precip, hourlyPprob:dd.pprob,
+      hourlyTemp:dd.temp, hourlyFeel:dd.feel,
+      sunrise:D.sunrise[idx]?new Date(D.sunrise[idx]).toLocaleTimeString('sl-SI',{hour:'2-digit',minute:'2-digit'}):'--',
+      sunset:D.sunset[idx]?new Date(D.sunset[idx]).toLocaleTimeString('sl-SI',{hour:'2-digit',minute:'2-digit'}):'--',
+    };
+  });
+  draw();
+}
+
+function draw(){
+  const maxSun=Math.max.apply(null,cards.map(c=>c.radSum).concat([1]));
+  const maxRain=Math.max.apply(null,cards.map(c=>parseFloat(c.precipTot)).concat([0.1]));
+  const allTmax=cards.map(c=>c.tMax).filter(v=>v!=null);
+  const allTmin=cards.map(c=>c.tMin).filter(v=>v!=null);
+  const tAbsMax=allTmax.length?Math.max.apply(null,allTmax):40;
+  const tAbsMin=allTmin.length?Math.min.apply(null,allTmin):-10;
+  cnt.innerHTML=cards.map((c,i)=>buildCard(c,i,i===0,i===expanded,maxSun,maxRain,tAbsMin,tAbsMax)).join('')
+    +'<div class="footer-note">Model: <span>'+(MODEL_LABELS[model]||'Best Match')+'</span> · Open-Meteo API · CC-BY-4.0</div>';
+  cnt.querySelectorAll('.day-card').forEach(el=>el.addEventListener('click',e=>{
+    if(e.target.closest('canvas'))return; // don't collapse when clicking chart
+    const i=+el.dataset.i; expanded=(expanded===i)?-1:i; draw();
+  }));
+  // init canvases after DOM is ready
+  requestAnimationFrame(()=>initAllCanvases(tAbsMin,tAbsMax));
+}
+
+// ---- Color helpers ----
+function sunColor(m){if(m>700)return'#FFB300';if(m>400)return'#FF8C00';if(m>100)return'#FF6B35';return'#6B7280';}
+function sunEmoji(m){if(m>700)return'☀️';if(m>300)return'🌤';if(m>50)return'⛅';return'🌧';}
+function sunLabel(m){if(m>700)return'Sončno ☀️';if(m>300)return'Delno oblačno 🌤';if(m>50)return'Oblačno ⛅';return'Oblačno 🌧';}
+function rainColor(mm){if(mm>20)return'#3B82F6';if(mm>10)return'#60A5FA';if(mm>2)return'#93C5FD';if(mm>0)return'#BFDBFE';return'#4B5563';}
+function rainEmoji(mm,sn){if(parseFloat(sn)>0.5)return'❄️';if(mm>20)return'⛈️';if(mm>5)return'🌧';if(mm>1)return'🌦';if(mm>0)return'🌂';return'🌵';}
+function rainLabel(mm,sn){const s=parseFloat(sn),m=parseFloat(mm);if(s>0.5)return'Sneg ❄️ '+sn+'cm';if(m>20)return'Močne padavine';if(m>5)return'Zmerne padavine';if(m>1)return'Rahle padavine';if(m>0)return'Malo padavin';return'Suho 🌵';}
+function tempColor(t){if(t==null)return'#9CA3AF';if(t>=35)return'#EF4444';if(t>=25)return'#F97316';if(t>=15)return'#EAB308';if(t>=5)return'#22C55E';if(t>=0)return'#06B6D4';return'#818CF8';}
+function tempEmoji(tm){if(tm==null)return'🌡️';if(tm>=35)return'🥵';if(tm>=25)return'😎';if(tm>=15)return'🌤';if(tm>=5)return'🧥';if(tm>=0)return'🥶';return'❄️';}
+function tempLabel(tm){if(tm==null)return'Temperatura';if(tm>=35)return'Vročina 🥵';if(tm>=25)return'Toplo ☀️';if(tm>=15)return'Prijetno 🌤';if(tm>=5)return'Sveže 🧥';if(tm>=0)return'Hladno 🥶';return'Zmrzal ❄️';}
+
+function buildCard(c,i,isToday,exp,maxSun,maxRain,tAbsMin,tAbsMax){
+  let iconEmoji,mainColor,progVal,progMax,metaHtml,expClass;
+  if(tab==='sun'){
+    iconEmoji=sunEmoji(c.radMax);mainColor=sunColor(c.radMax);progVal=c.radSum;progMax=maxSun;expClass='exp-sun';
+    metaHtml='<span class="card-label" style="color:'+mainColor+'">'+sunLabel(c.radMax)+'</span>'
+      +'<span class="card-stat">Max: '+c.radMax+' W/m²</span>'
+      +'<span class="card-stat">☀️ '+c.sunH+'h</span><span class="card-stat">☁️ '+c.cloudAvg+'%</span>';
+  } else if(tab==='rain'){
+    iconEmoji=rainEmoji(c.precipTot,c.snowTot);mainColor=rainColor(parseFloat(c.precipTot));progVal=parseFloat(c.precipTot);progMax=maxRain;expClass='exp-rain';
+    metaHtml='<span class="card-label" style="color:'+mainColor+'">'+rainLabel(c.precipTot,c.snowTot)+'</span>'
+      +'<span class="card-stat">'+c.precipTot+' mm</span><span class="card-stat">'+c.precipProbMax+'% verj.</span>'
+      +(parseFloat(c.snowTot)>0?'<span class="card-stat">❄️ '+c.snowTot+'cm</span>':'');
+  } else if(tab==='temp'){
+    mainColor=tempColor(c.tMax);iconEmoji=tempEmoji(c.tMax);expClass='exp-temp';
+    const tR=tAbsMax-tAbsMin||1; progVal=c.tMax!=null?(c.tMax-tAbsMin):0; progMax=tR;
+    metaHtml='<span class="card-label" style="color:'+mainColor+'">'+tempLabel(c.tMax)+'</span>'
+      +(c.tMax!=null?'<span class="card-stat">↑ '+c.tMax+'°C</span>':'')
+      +(c.tMin!=null?'<span class="card-stat">↓ '+c.tMin+'°C</span>':'')
+      +(c.feelMax!=null?'<span class="card-stat">občutek '+c.feelMax+'°C</span>':'');
+  } else {
+    iconEmoji=parseFloat(c.precipTot)>2?rainEmoji(c.precipTot,c.snowTot):sunEmoji(c.radMax);
+    mainColor=sunColor(c.radMax);progVal=c.radSum;progMax=maxSun;expClass='exp-all';
+    metaHtml='<span class="card-stat" style="color:'+tempColor(c.tMax)+'">'+c.tMax+'°/'+c.tMin+'°C</span>'
+      +'<span class="card-stat">☀️ '+c.sunH+'h</span><span class="card-stat">🌧 '+c.precipTot+'mm</span><span class="card-stat">'+c.precipProbMax+'% verj.</span>';
+  }
+  const pct=Math.min((progVal/progMax)*100,100).toFixed(1);
+  const details=exp?buildDetails(c,i,tAbsMin,tAbsMax):'';
+  return '<div class="day-card'+(exp?' '+expClass:'')+'" data-i="'+i+'">'
+    +'<div class="card-top">'
+    +'<div class="card-icon" style="background:'+mainColor+'22">'+iconEmoji+'</div>'
+    +'<div class="card-info">'
+    +'<div class="card-title-row"><span class="card-title">'+(isToday?'Danes':c.label)+'</span><span class="card-date">'+c.date+'</span></div>'
+    +'<div class="card-meta">'+metaHtml+'</div>'
+    +'<div class="progress-track"><div class="progress-fill" style="width:'+pct+'%;background:'+mainColor+'"></div></div>'
+    +'</div><div class="card-arrow'+(exp?' open':'')+'">›</div>'
+    +'</div>'+details+'</div>';
+}
+
+function buildDetails(c,cardIdx,tAbsMin,tAbsMax){
+  let out='<div class="card-details">';
+  if(tab==='sun'){
+    out+='<div class="stats-grid cols4">'
+      +'<div class="stat-box"><div class="stat-val" style="color:#FFB300">'+c.radMax+'</div><div class="stat-sub">vrh W/m²</div></div>'
+      +'<div class="stat-box"><div class="stat-val" style="color:#FFB300">'+c.sunH+'h</div><div class="stat-sub">sonce</div></div>'
+      +'<div class="stat-box"><div class="stat-val" style="color:#94A3B8">'+c.cloudAvg+'%</div><div class="stat-sub">oblačnost</div></div>'
+      +'<div class="stat-box"><div class="stat-val" style="color:#60A5FA">'+c.precipTot+'mm</div><div class="stat-sub">padavine</div></div></div>'
+      +'<div class="chart-wrap"><div class="chart-label">Sončno sevanje GHI (W/m²)</div>'
+      +'<canvas class="chart-canvas" data-type="line" data-card="'+cardIdx+'" data-series="rad" height="95"></canvas></div>'
+      +'<div class="sunrise-row"><span>🌅 '+c.sunrise+'</span><span>🌇 '+c.sunset+'</span></div>';
+  } else if(tab==='rain'){
+    out+='<div class="stats-grid cols4">'
+      +'<div class="stat-box"><div class="stat-val" style="color:#60A5FA">'+c.precipTot+'</div><div class="stat-sub">skupaj mm</div></div>'
+      +'<div class="stat-box"><div class="stat-val" style="color:#60A5FA">'+c.precipProbMax+'%</div><div class="stat-sub">verjetnost</div></div>'
+      +'<div class="stat-box"><div class="stat-val" style="color:#A78BFA">'+c.snowTot+'cm</div><div class="stat-sub">sneg</div></div>'
+      +'<div class="stat-box"><div class="stat-val" style="color:#F472B6">'+c.rainTot+'mm</div><div class="stat-sub">dež</div></div></div>'
+      +'<div class="chart-wrap"><div class="chart-label">Urne padavine (mm) + verjetnost (%)</div>'
+      +'<canvas class="chart-canvas" data-type="rain" data-card="'+cardIdx+'" height="95"></canvas></div>';
+  } else if(tab==='temp'){
+    out+='<div class="stats-grid cols5">'
+      +'<div class="stat-box"><div class="stat-val" style="color:'+tempColor(c.tMax)+'">'+c.tMax+'°</div><div class="stat-sub">max °C</div></div>'
+      +'<div class="stat-box"><div class="stat-val" style="color:'+tempColor(c.tMin)+'">'+c.tMin+'°</div><div class="stat-sub">min °C</div></div>'
+      +'<div class="stat-box"><div class="stat-val" style="color:'+tempColor(c.feelMax)+'">'+c.feelMax+'°</div><div class="stat-sub">občutek max</div></div>'
+      +'<div class="stat-box"><div class="stat-val" style="color:'+tempColor(c.feelMin)+'">'+c.feelMin+'°</div><div class="stat-sub">občutek min</div></div>'
+      +'<div class="stat-box"><div class="stat-val" style="color:#94A3B8">'+(c.tMax!=null&&c.tMin!=null?c.tMax-c.tMin:'-')+'°</div><div class="stat-sub">razpon</div></div></div>'
+      +'<div class="chart-wrap"><div class="chart-label">Temperatura (°C) + občutek</div>'
+      +'<canvas class="chart-canvas" data-type="temp" data-card="'+cardIdx+'" data-tmin="'+tAbsMin+'" data-tmax="'+tAbsMax+'" height="95"></canvas></div>';
+  } else {
+    out+='<div class="stats-grid cols4">'
+      +'<div class="stat-box"><div class="stat-val" style="color:'+tempColor(c.tMax)+'">'+c.tMax+'°/'+c.tMin+'°</div><div class="stat-sub">temperatura</div></div>'
+      +'<div class="stat-box"><div class="stat-val" style="color:#FFB300">'+c.sunH+'h</div><div class="stat-sub">sonce</div></div>'
+      +'<div class="stat-box"><div class="stat-val" style="color:#60A5FA">'+c.precipTot+'mm</div><div class="stat-sub">padavine</div></div>'
+      +'<div class="stat-box"><div class="stat-val" style="color:#60A5FA">'+c.precipProbMax+'%</div><div class="stat-sub">verjetnost</div></div></div>'
+      +'<div class="chart-wrap"><div class="chart-label">Temperatura (°C)</div>'
+      +'<canvas class="chart-canvas" data-type="temp" data-card="'+cardIdx+'" data-tmin="'+tAbsMin+'" data-tmax="'+tAbsMax+'" height="95"></canvas></div>'
+      +'<div class="chart-wrap"><div class="chart-label">Sončno sevanje (W/m²)</div>'
+      +'<canvas class="chart-canvas" data-type="line" data-card="'+cardIdx+'" data-series="rad" height="95"></canvas></div>'
+      +'<div class="chart-wrap"><div class="chart-label">Padavine (mm)</div>'
+      +'<canvas class="chart-canvas" data-type="rain" data-card="'+cardIdx+'" height="95"></canvas></div>'
+      +'<div class="sunrise-row"><span>🌅 '+c.sunrise+'</span><span>🌇 '+c.sunset+'</span></div>';
+  }
+  return out+'</div>';
+}
+
+// ===== CANVAS CHART ENGINE =====
+const CHART_W=560, CHART_H=95, PL=36, PR=10, PT=10, PB=22;
+
+function initAllCanvases(tAbsMin,tAbsMax){
+  document.querySelectorAll('canvas.chart-canvas').forEach(canvas=>{
+    const cardIdx=+canvas.dataset.card;
+    const c=cards[cardIdx];
+    if(!c)return;
+    const type=canvas.dataset.type;
+
+    // Set canvas resolution
+    const rect=canvas.parentElement.getBoundingClientRect();
+    const cssW=rect.width||400;
+    const cssH=+canvas.getAttribute('height')||95;
+    canvas.style.height=cssH+'px';
+    canvas.width=Math.round(cssW*DPR);
+    canvas.height=Math.round(cssH*DPR);
+    const ctx=canvas.getContext('2d');
+    ctx.scale(DPR,DPR);
+    const W=cssW, H=cssH;
+
+    let chartData={};
+    if(type==='line'){
+      chartData={type:'line',values:c.hourlyRad,times:c.hourlyTime,color:'#FFB300',yMax:1200,unit:'W/m²'};
+    } else if(type==='rain'){
+      chartData={type:'rain',values:c.hourlyPrecip,prob:c.hourlyPprob,times:c.hourlyTime};
+    } else if(type==='temp'){
+      const tmn=parseFloat(canvas.dataset.tmin), tmx=parseFloat(canvas.dataset.tmax);
+      chartData={type:'temp',values:c.hourlyTemp,feels:c.hourlyFeel,times:c.hourlyTime,tAbsMin:tmn,tAbsMax:tmx};
+    }
+
+    drawChart(ctx,W,H,chartData);
+
+    // Mouse interactions
+    let hoverIdx=-1;
+    function onMouseMove(e){
+      const r=canvas.getBoundingClientRect();
+      const mx=(e.clientX-r.left), my=(e.clientY-r.top);
+      const cW=W-PL-PR, n=chartData.values.length;
+      if(mx<PL||mx>W-PR){hoverIdx=-1; drawChart(ctx,W,H,chartData); return;}
+      const frac=(mx-PL)/cW;
+      const idx=Math.round(frac*(n-1));
+      if(idx===hoverIdx)return;
+      hoverIdx=Math.max(0,Math.min(n-1,idx));
+      drawChart(ctx,W,H,chartData,hoverIdx);
+    }
+    function onMouseLeave(){hoverIdx=-1;drawChart(ctx,W,H,chartData);}
+    canvas.addEventListener('mousemove',onMouseMove);
+    canvas.addEventListener('mouseleave',onMouseLeave);
+    // touch
+    canvas.addEventListener('touchmove',e=>{e.preventDefault();onMouseMove(e.touches[0]);},{passive:false});
+    canvas.addEventListener('touchend',onMouseLeave);
+  });
+}
+
+function drawChart(ctx,W,H,d,hoverIdx){
+  ctx.clearRect(0,0,W,H);
+  const cW=W-PL-PR, cH=H-PT-PB;
+
+  if(d.type==='line') drawLineChart(ctx,W,H,cW,cH,d,hoverIdx);
+  else if(d.type==='rain') drawRainChart(ctx,W,H,cW,cH,d,hoverIdx);
+  else if(d.type==='temp') drawTempChart(ctx,W,H,cW,cH,d,hoverIdx);
+}
+
+function drawGrid(ctx,cW,cH,lineCount=3){
+  ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1;
+  for(let i=0;i<=lineCount;i++){
+    const y=PT+cH*(1-i/lineCount);
+    ctx.beginPath(); ctx.moveTo(PL,y); ctx.lineTo(PL+cW,y); ctx.stroke();
+  }
+}
+
+function drawXticks(ctx,times,n,cW,H){
+  ctx.fillStyle='rgba(255,255,255,0.3)'; ctx.font='9px Space Mono,monospace'; ctx.textAlign='center';
+  [0,3,6,9,12,15,18,21].forEach(h=>{
+    let idx=-1; for(let i=0;i<times.length;i++){if(new Date(times[i]).getHours()===h){idx=i;break;}} if(idx<0)return;
+    const x=PL+(idx/(n-1))*cW;
+    ctx.fillText(String(h).padStart(2,'0'),x,H-5);
+  });
+}
+
+function drawYlabel(ctx,v,y,suffix){
+  ctx.fillStyle='rgba(255,255,255,0.28)'; ctx.font='8px Space Mono,monospace'; ctx.textAlign='right';
+  ctx.fillText(v+(suffix||''),PL-4,y+3);
+}
+
+function drawCrosshair(ctx,x,cH){
+  ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(x,PT); ctx.lineTo(x,PT+cH); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawTooltip(ctx,x,y,W,H,lines,accentColor){
+  const pad=7, lh=14, bw=Math.max.apply(null,lines.map(l=>{
+    ctx.font=(l.bold?'bold ':'')+'11px Space Mono,monospace';
+    return ctx.measureText(l.text).width;
+  }))+pad*2;
+  const bh=lines.length*lh+pad*1.5;
+  let tx=x+10, ty=y-bh/2;
+  if(tx+bw>W-4)tx=x-bw-10;
+  if(ty<PT)ty=PT;
+  if(ty+bh>H-PB)ty=H-PB-bh;
+
+  ctx.fillStyle='rgba(13,21,37,0.92)';
+  ctx.strokeStyle=accentColor||'rgba(255,255,255,0.2)';
+  ctx.lineWidth=1;
+  roundRect(ctx,tx,ty,bw,bh,6);
+  ctx.fill(); ctx.stroke();
+
+  lines.forEach((l,i)=>{
+    ctx.font=(l.bold?'bold ':'')+'11px Space Mono,monospace';
+    ctx.fillStyle=l.color||'rgba(255,255,255,0.85)';
+    ctx.textAlign='left';
+    ctx.fillText(l.text,tx+pad,ty+pad+lh*0.85+i*lh);
+  });
+}
+
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath();
+}
+
+// Line chart (radiation)
+function drawLineChart(ctx,W,H,cW,cH,d,hoverIdx){
+  const {values,times,color,yMax,unit}=d;
+  const max=yMax||Math.max.apply(null,values.concat([1]));
+  const n=values.length;
+  const xv=i=>PL+(i/(n-1))*cW;
+  const yv=v=>PT+cH-((v||0)/max)*cH;
+
+  drawGrid(ctx,cW,cH,2);
+  [0,Math.round(max/2),Math.round(max)].forEach((v,i)=>drawYlabel(ctx,v,PT+cH-(v/max)*cH));
+
+  // Area fill
+  const grad=ctx.createLinearGradient(0,PT,0,PT+cH);
+  grad.addColorStop(0,color+'55'); grad.addColorStop(1,color+'05');
+  ctx.beginPath(); ctx.moveTo(xv(0),PT+cH);
+  values.forEach((v,i)=>ctx.lineTo(xv(i),yv(v)));
+  ctx.lineTo(xv(n-1),PT+cH); ctx.closePath();
+  ctx.fillStyle=grad; ctx.fill();
+
+  // Line
+  ctx.beginPath(); ctx.strokeStyle=color; ctx.lineWidth=1.8; ctx.lineJoin='round';
+  values.forEach((v,i)=>i===0?ctx.moveTo(xv(i),yv(v)):ctx.lineTo(xv(i),yv(v)));
+  ctx.stroke();
+
+  drawXticks(ctx,times,n,cW,H);
+
+  // Hover
+  if(hoverIdx!=null&&hoverIdx>=0){
+    const x=xv(hoverIdx), val=values[hoverIdx]||0;
+    const y=yv(val);
+    drawCrosshair(ctx,x,cH);
+    // dot
+    ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2);
+    ctx.fillStyle=color; ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+
+    const t=new Date(times[hoverIdx]);
+    const timeStr=t.toLocaleTimeString('sl-SI',{hour:'2-digit',minute:'2-digit'});
+    drawTooltip(ctx,x,y,W,H,[
+      {text:timeStr,color:'rgba(255,255,255,0.5)'},
+      {text:Math.round(val)+' '+(unit||''),bold:true,color:color},
+    ],color);
+  }
+}
+
+// Rain chart
+function drawRainChart(ctx,W,H,cW,cH,d,hoverIdx){
+  const {values:precip,prob,times}=d;
+  const maxP=Math.max.apply(null,precip.concat([0.5]));
+  const n=precip.length;
+  const bw=Math.max(1,cW/n-0.8);
+  const xv=i=>PL+(i/n)*cW;
+  const yp=v=>PT+cH-(v/maxP)*cH;
+  const yprob=v=>PT+cH-(v/100)*cH;
+
+  drawGrid(ctx,cW,cH,2);
+  [0,Math.round(maxP/2*10)/10,Math.round(maxP*10)/10].forEach(v=>drawYlabel(ctx,v,yp(v)));
+
+  // bars
+  precip.forEach((v,i)=>{
+    const bh=(v/maxP)*cH;
+    const intensity=Math.min(v/maxP,1);
+    const r=Math.round(59+intensity*70), g=Math.round(130+intensity*20);
+    ctx.fillStyle='rgba('+r+','+g+',246,0.85)';
+    ctx.beginPath();
+    const rx=xv(i), ry=PT+cH-bh;
+    ctx.rect(rx,ry,bw,bh);
+    ctx.fill();
+  });
+
+  // probability line
+  if(prob&&prob.length>1){
+    ctx.beginPath(); ctx.strokeStyle='rgba(167,139,250,0.65)'; ctx.lineWidth=1.5; ctx.setLineDash([3,2]);
+    prob.forEach((v,i)=>i===0?ctx.moveTo(xv(i)+(bw/2),yprob(v)):ctx.lineTo(xv(i)+(bw/2),yprob(v)));
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='rgba(167,139,250,0.4)'; ctx.font='8px Space Mono,monospace'; ctx.textAlign='right';
+    ctx.fillText('% verj.',W-PR-2,PT+9);
+  }
+
+  drawXticks(ctx,times,n,cW,H);
+
+  if(hoverIdx!=null&&hoverIdx>=0){
+    const x=xv(hoverIdx)+bw/2;
+    drawCrosshair(ctx,x,cH);
+    const pval=precip[hoverIdx]||0, ppval=prob?prob[hoverIdx]:null;
+    const t=new Date(times[hoverIdx]);
+    const timeStr=t.toLocaleTimeString('sl-SI',{hour:'2-digit',minute:'2-digit'});
+    const lines=[
+      {text:timeStr,color:'rgba(255,255,255,0.5)'},
+      {text:pval.toFixed(2)+' mm',bold:true,color:'#60A5FA'},
+    ];
+    if(ppval!=null)lines.push({text:'verj. '+ppval+'%',color:'rgba(167,139,250,0.9)'});
+    drawTooltip(ctx,x,PT+cH/2,W,H,lines,'#60A5FA');
+  }
+}
+
+// Temp chart
+function drawTempChart(ctx,W,H,cW,cH,d,hoverIdx){
+  const {values:temps,feels,times,tAbsMin,tAbsMax}=d;
+  const validT=temps.filter(v=>v!=null);
+  if(!validT.length)return;
+  const tMin=Math.min(tAbsMin,Math.min.apply(null,validT))-2;
+  const tMax=Math.max(tAbsMax,Math.max.apply(null,validT))+2;
+  const range=tMax-tMin||1;
+  const n=temps.length;
+  const xv=i=>PL+(i/(n-1))*cW;
+  const ty=v=>v!=null?PT+cH-((v-tMin)/range)*cH:null;
+
+  // grid lines at 5° intervals
+  const tickVals=[Math.ceil(tMin/5)*5];
+  for(let v=tickVals[0]+5;v<=tMax;v+=5)tickVals.push(v);
+  ctx.strokeStyle='rgba(255,255,255,0.04)'; ctx.lineWidth=1;
+  tickVals.forEach(v=>{
+    const y=ty(v);
+    ctx.beginPath(); ctx.moveTo(PL,y); ctx.lineTo(PL+cW,y); ctx.stroke();
+    drawYlabel(ctx,v,y,'°');
+  });
+
+  // zero line
+  const zy=ty(0);
+  if(zy!=null&&zy>PT&&zy<PT+cH){
+    ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=1; ctx.setLineDash([4,3]);
+    ctx.beginPath(); ctx.moveTo(PL,zy); ctx.lineTo(PL+cW,zy); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // feel area
+  const feelValid=feels&&feels.filter(v=>v!=null).length>0;
+  if(feelValid){
+    const fp=feels.map((v,i)=>({x:xv(i),y:ty(v)})).filter(p=>p.y!=null);
+    if(fp.length>1){
+      ctx.beginPath(); ctx.moveTo(fp[0].x,PT+cH);
+      fp.forEach(p=>ctx.lineTo(p.x,p.y));
+      ctx.lineTo(fp[fp.length-1].x,PT+cH); ctx.closePath();
+      ctx.fillStyle='rgba(251,146,60,0.1)'; ctx.fill();
+      ctx.beginPath(); ctx.strokeStyle='rgba(251,146,60,0.5)'; ctx.lineWidth=1.2; ctx.setLineDash([4,2]);
+      fp.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+
+  // temp line - segment by segment with per-value color (Safari compatible)
+  const tp=temps.map((v,i)=>({x:xv(i),y:ty(v),v:v}));
+  if(tp.length>1){
+    ctx.lineWidth=2; ctx.lineJoin='round'; ctx.setLineDash([]);
+    for(let i=0;i<tp.length-1;i++){
+      const p=tp[i], q=tp[i+1];
+      if(p.y==null||q.y==null) continue;
+      const midV=(p.v+q.v)/2;
+      ctx.beginPath();
+      ctx.strokeStyle=tempColor(midV);
+      ctx.moveTo(p.x,p.y); ctx.lineTo(q.x,q.y);
+      ctx.stroke();
+    }
+  }
+
+  if(feelValid){
+    ctx.fillStyle='rgba(251,146,60,0.4)'; ctx.font='8px Space Mono,monospace'; ctx.textAlign='right';
+    ctx.fillText('občutek',W-PR-2,PT+9);
+  }
+
+  drawXticks(ctx,times,n,cW,H);
+
+  if(hoverIdx!=null&&hoverIdx>=0){
+    const tv=temps[hoverIdx], fv=feels?feels[hoverIdx]:null;
+    const x=xv(hoverIdx);
+    const y=ty(tv)||PT+cH/2;
+    drawCrosshair(ctx,x,cH);
+    if(tv!=null){
+      ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2);
+      ctx.fillStyle=tempColor(tv); ctx.fill();
+      ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+    }
+    const t=new Date(times[hoverIdx]);
+    const timeStr=t.toLocaleTimeString('sl-SI',{hour:'2-digit',minute:'2-digit'});
+    const lines=[{text:timeStr,color:'rgba(255,255,255,0.5)'}];
+    if(tv!=null)lines.push({text:tv.toFixed(1)+'°C',bold:true,color:tempColor(tv)});
+    if(fv!=null)lines.push({text:'občutek '+fv.toFixed(1)+'°C',color:'rgba(251,146,60,0.9)'});
+    drawTooltip(ctx,x,y,W,H,lines,tempColor(tv));
+  }
+}
+
+load();
+</script>
+</body>
+</html>
